@@ -2,3 +2,4 @@ dependencies:
   idf: '>=4.4'
   espressif/bme280: ^0.1.1
   esp-idf-lib/bmp280: '*'
+  esp-idf-lib/sht3x: '*'
