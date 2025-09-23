@@ -1,0 +1,43 @@
+dependencies:
+  bme280:
+    dependencies: []
+    source:
+      path: C:\Users\U S E R\OneDrive\One Drive Personal\OneDrive\DeepSea\Repositorios\IOT_Enviromental_Sensor\components\bme280
+      type: local
+    version: 0.1.1
+  espressif/cmake_utilities:
+    component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.1'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.5.3
+  espressif/i2c_bus:
+    component_hash: fe8f85b3859544fabb960d7bcec24278cd3c88e3f1777e8a2075b0aca202fd9f
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: idf
+      require: private
+      version: '>=4.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.4.2
+  idf:
+    source:
+      type: idf
+    version: 5.5.0
+direct_dependencies:
+- bme280
+- espressif/cmake_utilities
+- espressif/i2c_bus
+- idf
+manifest_hash: cb6bb7fb184a0743d97c3aa67fb72a86d0effa2b04edfaaf1922a76526069bbc
+target: esp32
+version: 2.0.0

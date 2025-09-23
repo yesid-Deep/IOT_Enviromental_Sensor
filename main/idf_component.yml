@@ -1,0 +1,4 @@
+dependencies:
+  bme280:
+    path: "../components/bme280"
+  idf: ">=4.4"
