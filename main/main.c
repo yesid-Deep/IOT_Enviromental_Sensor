@@ -5,85 +5,58 @@
  */
 
 #include <stdio.h>
-#include <inttypes.h>
-#include "sdkconfig.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "esp_chip_info.h"
-#include "esp_flash.h"
-#include "esp_system.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <esp_system.h>
+#include <bmp280.h>
+#include <string.h>
 
-#include <stdio.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "unity.h"
-#include "esp_log.h"
-#include "bme280.h"
-#include "driver/i2c.h"
-#include "esp_mac.h"
+#ifndef APP_CPU_NUM
+#define APP_CPU_NUM PRO_CPU_NUM
+#endif
 
-#define I2C_HOST 0
-#define I2C_MASTER_SCL_IO           22          /*!< gpio number for I2C master clock IO2*/
-#define I2C_MASTER_SDA_IO           21           /*!< gpio number for I2C master data  IO1*/
-#define I2C_MASTER_NUM              I2C_NUM_0            /*!< I2C port number for master bme280 */
-#define I2C_MASTER_TX_BUF_DISABLE   0                    /*!< I2C master do not need buffer */
-#define I2C_MASTER_RX_BUF_DISABLE   0                    /*!< I2C master do not need buffer */
-#define I2C_MASTER_FREQ_HZ          100000               /*!< I2C master clock frequency */
+#define EXAMPLE_PIN_NUM_SDA 21
+#define EXAMPLE_PIN_NUM_SCL 22
 
-static i2c_bus_handle_t i2c_bus = NULL;
-static bme280_handle_t bme280 = NULL;
-
-void bme280_test_init()
+void bmp280_test(void *pvParameters)
 {
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = I2C_MASTER_SDA_IO,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_io_num = I2C_MASTER_SCL_IO,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = I2C_MASTER_FREQ_HZ,
-    };
-    ESP_ERROR_CHECK(i2c_param_config(I2C_HOST, &conf));
-    ESP_ERROR_CHECK(i2c_driver_install(I2C_HOST, I2C_MODE_MASTER, 0, 0, 0));
-    bme280 = bme280_create(i2c_bus, BME280_I2C_ADDRESS_DEFAULT);
-    ESP_LOGI("BME280:", "bme280_default_init:%d", bme280_default_init(bme280));
-}
+    bmp280_params_t params;
+    bmp280_init_default_params(&params);
+    bmp280_t dev;
+    memset(&dev, 0, sizeof(bmp280_t));
 
-void bme280_test_deinit()
-{
-    bme280_delete(&bme280);
-    i2c_bus_delete(&i2c_bus);
-}
+    ESP_ERROR_CHECK(bmp280_init_desc(&dev, BMP280_I2C_ADDRESS_0, 0, EXAMPLE_PIN_NUM_SDA, EXAMPLE_PIN_NUM_SCL));
+    ESP_ERROR_CHECK(bmp280_init(&dev, &params));
 
-void bme280_test_getdata()
-{
-    int cnt = 10;
-    while (cnt--) {
-        float temperature = 0.0, humidity = 0.0, pressure = 0.0;
-        if (ESP_OK == bme280_read_temperature(bme280, &temperature)) {
-            ESP_LOGI("BME280", "temperature:%f ", temperature);
+    bool bme280p = dev.id == BME280_CHIP_ID;
+    printf("BMP280: found %s\n", bme280p ? "BME280" : "BMP280");
+
+    float pressure, temperature, humidity;
+
+    while (1)
+    {
+        vTaskDelay(pdMS_TO_TICKS(500));
+        if (bmp280_read_float(&dev, &temperature, &pressure, &humidity) != ESP_OK)
+        {
+            printf("Temperature/pressure reading failed\n");
+            continue;
         }
-        vTaskDelay(300 / portTICK_RATE_MS);
-        if (ESP_OK == bme280_read_humidity(bme280, &humidity)) {
-            ESP_LOGI("BME280", "humidity:%f ", humidity);
-        }
-        vTaskDelay(300 / portTICK_RATE_MS);
-        if (ESP_OK == bme280_read_pressure(bme280, &pressure)) {
-            ESP_LOGI("BME280", "pressure:%f\n", pressure);
-        }
-        vTaskDelay(300 / portTICK_RATE_MS);
+
+        /* float is used in printf(). you need non-default configuration in
+         * sdkconfig for ESP8266, which is enabled by default for this
+         * example. see sdkconfig.defaults.esp8266
+         */
+        printf("Pressure: %.2f Pa, Temperature: %.2f C", pressure, temperature);
+        if (bme280p)
+            printf(", Humidity: %.2f\n", humidity);
+        else
+            printf("\n");
     }
 }
 
-TEST_CASE("Device bme280 test", "[bme280][iot][device]")
+void app_main()
 {
-    bme280_test_init();
-    bme280_test_getdata();
-    bme280_test_deinit();
+    ESP_ERROR_CHECK(i2cdev_init());
+    xTaskCreatePinnedToCore(bmp280_test, "bmp280_test", configMINIMAL_STACK_SIZE * 8, NULL, 5, NULL, APP_CPU_NUM);
 }
 
-void app_main(void)
-{
-    printf("BME280 TEST \n");
-    unity_run_menu();
-}

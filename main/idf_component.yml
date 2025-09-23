@@ -1,4 +1,4 @@
 dependencies:
-  bme280:
-    path: "../components/bme280"
-  idf: ">=4.4"
+  idf: '>=4.4'
+  espressif/bme280: ^0.1.1
+  esp-idf-lib/bmp280: '*'

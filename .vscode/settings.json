@@ -15,5 +15,8 @@
     "--query-driver=D:\\ESP-IDF\\Espressif\\tools\\xtensa-esp-elf\\esp-14.2.0_20241119\\xtensa-esp-elf\\bin\\xtensa-esp32-elf-gcc.exe",
     "--compile-commands-dir=c:\\Users\\U S E R\\OneDrive\\One Drive Personal\\OneDrive\\DeepSea\\Repositorios\\IOT_Enviromental_Sensor\\build"
   ],
-  "idf.flashType": "UART"
+  "idf.flashType": "UART",
+  "files.associations": {
+    "bme280.h": "c"
+  }
 }

@@ -1,8 +1,17 @@
 /*
- * SPDX-FileCopyrightText: 2022-2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2010-2022 Espressif Systems (Shanghai) CO LTD
  *
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: CC0-1.0
  */
+
+#include <stdio.h>
+#include <inttypes.h>
+#include "sdkconfig.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_chip_info.h"
+#include "esp_flash.h"
+#include "esp_system.h"
 
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
@@ -12,8 +21,8 @@
 #include "bme280.h"
 #include "i2c_bus.h"
 
-#define I2C_MASTER_SCL_IO           GPIO_NUM_2           /*!< gpio number for I2C master clock IO2*/
-#define I2C_MASTER_SDA_IO           GPIO_NUM_1           /*!< gpio number for I2C master data  IO1*/
+#define I2C_MASTER_SCL_IO           22          /*!< gpio number for I2C master clock IO2*/
+#define I2C_MASTER_SDA_IO           21          /*!< gpio number for I2C master data  IO1*/
 #define I2C_MASTER_NUM              I2C_NUM_0            /*!< I2C port number for master bme280 */
 #define I2C_MASTER_TX_BUF_DISABLE   0                    /*!< I2C master do not need buffer */
 #define I2C_MASTER_RX_BUF_DISABLE   0                    /*!< I2C master do not need buffer */
@@ -73,5 +82,7 @@ TEST_CASE("Device bme280 test", "[bme280][iot][device]")
 void app_main(void)
 {
     printf("BME280 TEST \n");
-    unity_run_menu();
+    bme280_test_init();
+    bme280_test_getdata();
+    //unity_run_menu();
 }
