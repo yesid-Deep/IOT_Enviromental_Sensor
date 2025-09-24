@@ -37,7 +37,7 @@ const char* wifi_page_html =
     "</script></body></html>";
 
 const char* influx_page_html =
-    "<!DOCTYPE html><html><head><title>Configurar Servidor</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+    "<!DOCTYPE html><html><head><title>Configurar Broker</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
     "<style>"
     "body{font-family: Arial, sans-serif; display: flex; justify-content: center; background-color: #f0f0f0; margin-top: 50px;}"
     ".form-container{width: 300px; background-color: #fff; border: 1px solid #ccc; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);}"
@@ -45,13 +45,20 @@ const char* influx_page_html =
     "button{width: 100%; padding: 10px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px;}"
     "button:hover{background-color: #218838;} a{display: block; text-align: center; margin-top: 20px; color: #007bff; text-decoration: none;} a:hover{text-decoration: underline;}"
     "</style></head>"
-    "<body><div class=\"form-container\"><h2>Configurar Servidor</h2>"
-    "<form id=\"influxForm\"><label for=\"url\">URL del Broker:</label><input type=\"text\" id=\"url\" name=\"url\"><label for=\"token\">Token:</label><input type=\"text\" id=\"token\" name=\"token\"><label for=\"org\">Organizacion:</label><input type=\"text\" id=\"org\" name=\"org\"><label for=\"bucket\">Bucket:</label><input type=\"text\" id=\"bucket\" name=\"bucket\"><button type=\"submit\">Guardar Configuracion</button></form>"
-    "<a href=\"/\">Volver a Config. de Wi-Fi</a>" // Enlace para volver
-    "</div>"
+    "<body><div class=\"form-container\"><h2>Configurar Broker MQTT</h2>"
+    "<form id=\"mqttForm\">"
+    "<label for=\"url\">URL del Broker:</label><input type=\"text\" id=\"url\" name=\"url\" placeholder=\"mqtts://...\">"
+    "<label for=\"user\">Usuario:</label><input type=\"text\" id=\"user\" name=\"user\">"
+    "<label for=\"pass\">Contrasena:</label><input type=\"password\" id=\"pass\" name=\"pass\">"
+    "<label for=\"topic\">Topic de Publicacion:</label><input type=\"text\" id=\"topic\" name=\"topic\" placeholder=\"ej: esp32/sensor/data\">"
+    "<button type=\"submit\">Guardar Configuracion</button></form>"
+    "<a href=\"/\">Volver a Config. de Wi-Fi</a></div>"
     "<script>"
-    "document.getElementById('influxForm').addEventListener('submit', function(e){ e.preventDefault(); const formData = {url: document.getElementById('url').value, token: document.getElementById('token').value, org: document.getElementById('org').value, bucket: document.getElementById('bucket').value}; fetch('/save_influx', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(formData)}).then(res => alert('Configuracion del servidor guardada!')).catch(err => alert('Error.')); });"
-    "</script></body></html>";
+    "document.getElementById('mqttForm').addEventListener('submit', function(e){ e.preventDefault();"
+    "const formData = {url: document.getElementById('url').value, user: document.getElementById('user').value, pass: document.getElementById('pass').value, topic: document.getElementById('topic').value};"
+    "fetch('/save_influx', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(formData)})"
+    ".then(res => alert('Configuracion del Broker guardada!')).catch(err => alert('Error.'));"
+    "});</script></body></html>";
 
 static EventGroupHandle_t s_wifi_event_group;
 #define WIFI_CONNECTED_BIT BIT0
@@ -82,14 +89,47 @@ static esp_err_t save_config_to_nvs(const app_config_t *config) {
     if (err != ESP_OK) return err;
     nvs_set_str(nvs_handle, "wifi_ssid", config->wifi_ssid);
     nvs_set_str(nvs_handle, "wifi_pass", config->wifi_pass);
-    nvs_set_str(nvs_handle, "influx_url", config->influx_url);
-    nvs_set_str(nvs_handle, "influx_token", config->influx_token);
-    nvs_set_str(nvs_handle, "influx_org", config->influx_org);
-    nvs_set_str(nvs_handle, "influx_bucket", config->influx_bucket);
+    nvs_set_str(nvs_handle, "mqtt_url", config->mqtt_url);
+    nvs_set_str(nvs_handle, "mqtt_user", config->mqtt_user);
+    nvs_set_str(nvs_handle, "mqtt_pass", config->mqtt_pass);
+    nvs_set_str(nvs_handle, "mqtt_topic", config->mqtt_topic);
     err = nvs_commit(nvs_handle);
     nvs_close(nvs_handle);
     return err;
 }
+
+static esp_err_t load_config_from_nvs(app_config_t *config) {
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open("storage", NVS_READONLY, &nvs_handle);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "NVS: No se encontro el namespace 'storage'.");
+        return err;
+    }
+
+    size_t required_size;
+    // Usamos el operador |= para acumular cualquier error que ocurra.
+    // Si una sola de estas lecturas falla, 'err' no será ESP_OK.
+    err |= nvs_get_str(nvs_handle, "wifi_ssid", config->wifi_ssid, &(size_t){sizeof(config->wifi_ssid)});
+    err |= nvs_get_str(nvs_handle, "wifi_pass", config->wifi_pass, &(size_t){sizeof(config->wifi_pass)});
+    err |= nvs_get_str(nvs_handle, "mqtt_url", config->mqtt_url, &(size_t){sizeof(config->mqtt_url)});
+    err |= nvs_get_str(nvs_handle, "mqtt_user", config->mqtt_user, &(size_t){sizeof(config->mqtt_user)});
+    err |= nvs_get_str(nvs_handle, "mqtt_pass", config->mqtt_pass, &(size_t){sizeof(config->mqtt_pass)});
+    err |= nvs_get_str(nvs_handle, "mqtt_topic", config->mqtt_topic, &(size_t){sizeof(config->mqtt_topic)});
+    nvs_close(nvs_handle);
+
+    nvs_close(nvs_handle);
+    
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "NVS: Faltan una o mas credenciales en la memoria.");
+    } else {
+        ESP_LOGI(TAG, "NVS: Todas las credenciales fueron cargadas exitosamente.");
+    }
+
+    return err;
+}
+
+
+
 
 static void trigger_factory_reset(void) {
     ESP_LOGW(TAG, "Disparando reseteo de fabrica en el proximo reinicio...");
@@ -106,34 +146,7 @@ static void trigger_factory_reset(void) {
 
 
 
-static esp_err_t load_config_from_nvs(app_config_t *config) {
-    nvs_handle_t nvs_handle;
-    esp_err_t err = nvs_open("storage", NVS_READONLY, &nvs_handle);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS: No se encontro el namespace 'storage'.");
-        return err;
-    }
 
-    size_t required_size;
-    // Usamos el operador |= para acumular cualquier error que ocurra.
-    // Si una sola de estas lecturas falla, 'err' no será ESP_OK.
-    err = nvs_get_str(nvs_handle, "wifi_ssid", config->wifi_ssid, &(size_t){sizeof(config->wifi_ssid)});
-    err |= nvs_get_str(nvs_handle, "wifi_pass", config->wifi_pass, &(size_t){sizeof(config->wifi_pass)});
-    err |= nvs_get_str(nvs_handle, "influx_url", config->influx_url, &(size_t){sizeof(config->influx_url)});
-    err |= nvs_get_str(nvs_handle, "influx_token", config->influx_token, &(size_t){sizeof(config->influx_token)});
-    err |= nvs_get_str(nvs_handle, "influx_org", config->influx_org, &(size_t){sizeof(config->influx_org)});
-    err |= nvs_get_str(nvs_handle, "influx_bucket", config->influx_bucket, &(size_t){sizeof(config->influx_bucket)});
-
-    nvs_close(nvs_handle);
-    
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS: Faltan una o mas credenciales en la memoria.");
-    } else {
-        ESP_LOGI(TAG, "NVS: Todas las credenciales fueron cargadas exitosamente.");
-    }
-
-    return err;
-}
 
 static esp_err_t save_wifi_post_handler(httpd_req_t *req) {
     char buf[128] = {0};
@@ -157,18 +170,15 @@ static esp_err_t save_wifi_post_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-
-
-
 static esp_err_t save_influx_post_handler(httpd_req_t *req) {
     char buf[512];
     httpd_req_recv(req, buf, sizeof(buf));
-    parse_json_value(buf, "url", prov_config->influx_url, sizeof(prov_config->influx_url));
-    parse_json_value(buf, "token", prov_config->influx_token, sizeof(prov_config->influx_token));
-    parse_json_value(buf, "org", prov_config->influx_org, sizeof(prov_config->influx_org));
-    parse_json_value(buf, "bucket", prov_config->influx_bucket, sizeof(prov_config->influx_bucket));
+    parse_json_value(buf, "url", prov_config->mqtt_url, sizeof(prov_config->mqtt_url));
+    parse_json_value(buf, "user", prov_config->mqtt_user, sizeof(prov_config->mqtt_user));
+    parse_json_value(buf, "pass", prov_config->mqtt_pass, sizeof(prov_config->mqtt_pass));
+    parse_json_value(buf, "topic", prov_config->mqtt_topic, sizeof(prov_config->mqtt_topic));
     if (save_config_to_nvs(prov_config) == ESP_OK) {
-        httpd_resp_send(req, "Configuracion InfluxDB guardada.", HTTPD_RESP_USE_STRLEN);
+        httpd_resp_send(req, "Configuracion del Broker guardada.", HTTPD_RESP_USE_STRLEN);
     } else {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Fallo al guardar");
     }

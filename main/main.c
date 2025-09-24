@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -44,7 +45,7 @@ static bool initialize_services(const app_config_t* config)
     ESP_LOGI(TAG, "--- PASO 2: INICIANDO SERVICIOS ---");
 
     // Revisar si tenemos configuración de InfluxDB antes de iniciar MQTT
-    if (strlen(config->influx_url) == 0 || strlen(config->influx_token) == 0) {
+    if (strlen(config->mqtt_url) == 0 || strlen(config->mqtt_user) == 0|| strlen(config->mqtt_pass) == 0 ) {
         ESP_LOGW(TAG, "No se encontraron credenciales de InfluxDB.");
         ESP_LOGW(TAG, "Por favor, conéctate a http://esp32-sensor.local/config para configurarlo.");
         // Decidimos continuar sin MQTT, pero podrías retornar 'false' si es crítico.
