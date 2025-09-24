@@ -14,6 +14,9 @@
 
 
 static const char *TAG = "WIFI_PROV";
+#define WIFI_MAXIMUM_RETRY  5
+static int s_retry_num = 0;
+
 
 const char* wifi_page_html =
     "<!DOCTYPE html><html><head><title>Configuracion Wi-Fi</title><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
@@ -88,37 +91,74 @@ static esp_err_t save_config_to_nvs(const app_config_t *config) {
     return err;
 }
 
+static void trigger_factory_reset(void) {
+    ESP_LOGW(TAG, "Disparando reseteo de fabrica en el proximo reinicio...");
+    nvs_handle_t nvs_handle;
+    // No usamos "storage", usamos el namespace por defecto para esta bandera
+    nvs_open("nvs", NVS_READWRITE, &nvs_handle);
+    // Escribimos un 1 en la bandera 'reset_flag'
+    nvs_set_u8(nvs_handle, "reset_flag", 1);
+    nvs_commit(nvs_handle);
+    nvs_close(nvs_handle);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    esp_restart();
+}
+
+
+
 static esp_err_t load_config_from_nvs(app_config_t *config) {
     nvs_handle_t nvs_handle;
     esp_err_t err = nvs_open("storage", NVS_READONLY, &nvs_handle);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "NVS: No se encontro el namespace 'storage'.");
+        return err;
+    }
+
     size_t required_size;
-    err = nvs_get_str(nvs_handle, "wifi_ssid", NULL, &required_size);
-    if (err != ESP_OK) { nvs_close(nvs_handle); return err; }
-    nvs_get_str(nvs_handle, "wifi_ssid", config->wifi_ssid, &required_size);
-    nvs_get_str(nvs_handle, "wifi_pass", config->wifi_pass, &required_size);
-    nvs_get_str(nvs_handle, "influx_url", config->influx_url, &required_size);
-    nvs_get_str(nvs_handle, "influx_token", config->influx_token, &required_size);
-    nvs_get_str(nvs_handle, "influx_org", config->influx_org, &required_size);
-    nvs_get_str(nvs_handle, "influx_bucket", config->influx_bucket, &required_size);
+    // Usamos el operador |= para acumular cualquier error que ocurra.
+    // Si una sola de estas lecturas falla, 'err' no será ESP_OK.
+    err = nvs_get_str(nvs_handle, "wifi_ssid", config->wifi_ssid, &(size_t){sizeof(config->wifi_ssid)});
+    err |= nvs_get_str(nvs_handle, "wifi_pass", config->wifi_pass, &(size_t){sizeof(config->wifi_pass)});
+    err |= nvs_get_str(nvs_handle, "influx_url", config->influx_url, &(size_t){sizeof(config->influx_url)});
+    err |= nvs_get_str(nvs_handle, "influx_token", config->influx_token, &(size_t){sizeof(config->influx_token)});
+    err |= nvs_get_str(nvs_handle, "influx_org", config->influx_org, &(size_t){sizeof(config->influx_org)});
+    err |= nvs_get_str(nvs_handle, "influx_bucket", config->influx_bucket, &(size_t){sizeof(config->influx_bucket)});
+
     nvs_close(nvs_handle);
-    return ESP_OK;
+    
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "NVS: Faltan una o mas credenciales en la memoria.");
+    } else {
+        ESP_LOGI(TAG, "NVS: Todas las credenciales fueron cargadas exitosamente.");
+    }
+
+    return err;
 }
 
 static esp_err_t save_wifi_post_handler(httpd_req_t *req) {
-    char buf[128];
-    httpd_req_recv(req, buf, sizeof(buf));
+    char buf[128] = {0};
+    httpd_req_recv(req, buf, sizeof(buf) - 1);
+    
     parse_json_value(buf, "ssid", prov_config->wifi_ssid, sizeof(prov_config->wifi_ssid));
     parse_json_value(buf, "pass", prov_config->wifi_pass, sizeof(prov_config->wifi_pass));
+
+    // --- MEJORA: No guardar si el SSID está vacío ---
+    if (strlen(prov_config->wifi_ssid) == 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "El SSID no puede estar vacio");
+        return ESP_FAIL;
+    }
+
     if (save_config_to_nvs(prov_config) == ESP_OK) {
         httpd_resp_send(req, "Wi-Fi guardado. Reiniciando...", HTTPD_RESP_USE_STRLEN);
         vTaskDelay(pdMS_TO_TICKS(1000));
         esp_restart();
-    } else {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Fallo al guardar");
+    } else { // ... (código de error igual)
     }
     return ESP_OK;
 }
+
+
+
 
 static esp_err_t save_influx_post_handler(httpd_req_t *req) {
     char buf[512];
@@ -167,21 +207,22 @@ static void start_webserver(bool provision_only) {
     }
 }
 
-static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
-{
+static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        ESP_LOGI(TAG, "Desconectado del Wi-Fi. Reintentando...");
-        esp_wifi_connect();
-        xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        if (s_retry_num < WIFI_MAXIMUM_RETRY) {
+            esp_wifi_connect();
+            s_retry_num++;
+            ESP_LOGI(TAG, "Reintentando conectar al AP (%d/%d)", s_retry_num, WIFI_MAXIMUM_RETRY);
+        } else {
+            ESP_LOGE(TAG, "Fallo al conectar despues de %d intentos. Reiniciando en modo AP.", WIFI_MAXIMUM_RETRY);
+            trigger_factory_reset(); 
+        }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
-        ESP_LOGI(TAG, "Obtenida IP:" IPSTR, IP2STR(&event->ip_info.ip));
+        s_retry_num = 0; 
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
-        ESP_LOGI(TAG, "Cliente conectado al punto de acceso");
-    }
+    } 
 }
 
 static void wifi_init_sta(const app_config_t* config)
@@ -221,10 +262,10 @@ static void wifi_init_softap(void)
 }
 
 // --- Función Pública Principal (Refactorizada) ---
-esp_err_t provision_start(app_config_t *config)
-{
+esp_err_t provision_start(app_config_t *config) {
     prov_config = config;
 
+    // Inicializar NVS
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
       ESP_ERROR_CHECK(nvs_flash_erase());
@@ -232,12 +273,37 @@ esp_err_t provision_start(app_config_t *config)
     }
     ESP_ERROR_CHECK(ret);
 
+    // --- NUEVA LÓGICA DE RESETEO ---
+    // 1. Comprobar si existe la bandera de reseteo al arrancar
+    nvs_handle_t nvs_handle;
+    nvs_open("nvs", NVS_READONLY, &nvs_handle);
+    uint8_t reset_flag = 0;
+    nvs_get_u8(nvs_handle, "reset_flag", &reset_flag);
+    nvs_close(nvs_handle);
+
+    if (reset_flag == 1) {
+        ESP_LOGW(TAG, "¡Bandera de reseteo detectada! Ejecutando limpieza de fabrica...");
+        // Borramos el namespace "storage" donde están las credenciales
+        nvs_open("storage", NVS_READWRITE, &nvs_handle);
+        nvs_erase_all(nvs_handle);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+        
+        // Borramos la propia bandera para el siguiente arranque
+        nvs_open("nvs", NVS_READWRITE, &nvs_handle);
+        nvs_set_u8(nvs_handle, "reset_flag", 0);
+        nvs_commit(nvs_handle);
+        nvs_close(nvs_handle);
+        
+        ESP_LOGW(TAG, "Limpieza completada. Reiniciando de nuevo en modo limpio...");
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        esp_restart();
+    }
+    
+    // Si no hay bandera de reseteo, el programa continúa normalmente
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-
     s_wifi_event_group = xEventGroupCreate();
-
-    // Registrar handlers de eventos UNA SOLA VEZ
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL));
 
@@ -246,16 +312,35 @@ esp_err_t provision_start(app_config_t *config)
         ESP_LOGI(TAG, "Configuracion Wi-Fi encontrada. Conectando como Cliente (Station)...");
         wifi_init_sta(config);
         
-        // Iniciar servicios de red local
-        start_webserver(false); // Iniciar servidor con AMBAS páginas
-        initialise_mdns();      // Iniciar mDNS
-    }
-    else
-    {
-        ESP_LOGI(TAG, "No se encontro Wi-Fi. Iniciando como Punto de Acceso (AP)...");
+                // Esperamos aquí hasta que la conexión sea exitosa o falle definitivamente
+        EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
+                WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                pdFALSE,
+                pdFALSE,
+                portMAX_DELAY);
+
+        // Comprobamos el resultado
+        if (bits & WIFI_CONNECTED_BIT) {
+            ESP_LOGI(TAG, "Conexión exitosa.");
+            start_webserver(false); // Iniciar servidor con AMBAS páginas
+            initialise_mdns();      // Iniciar mDNS
+            return ESP_OK; 
+
+        } else {
+            ESP_LOGE(TAG, "Fallo al conectar con las credenciales guardadas.");
+            // Las credenciales son incorrectas, disparamos un reseteo
+            trigger_factory_reset(); 
+            return ESP_FAIL; // El dispositivo se reiniciará
+        } 
+    }else {
+        ESP_LOGI(TAG, "No se encontró Wi-Fi. Iniciando como Punto de Acceso (AP)...");
         wifi_init_softap();
-        start_webserver(true); // Iniciar servidor solo con la página de Wi-Fi
+        start_webserver(true);
+
+        while(1) {
+            vTaskDelay(portMAX_DELAY);
+        }
     }
     
-    return ESP_OK;
+
 }

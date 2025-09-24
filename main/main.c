@@ -2,67 +2,109 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+
+// Nuestros componentes personalizados
 #include "wifi_prov.h"
 #include "i2c_components.h"
+#include "mqtt_service.h"
 
 static const char *TAG = "MAIN_APP";
 
-static void start_and_run_sensors(void)
+// Puntero estático para el manejador de sensores, accesible por las funciones de este archivo
+static EnvironmentalSensor_t *sensor_handle = NULL;
+
+/**
+ * @brief Se encarga de la lógica de inicialización del Wi-Fi.
+ *
+ * @param config Puntero a la estructura donde se cargarán las credenciales.
+ * @return true Si el Wi-Fi se conectó con éxito.
+ * @return false Si el Wi-Fi falló.
+ */
+static bool initialize_wifi(app_config_t *config)
 {
-    ESP_LOGI(TAG, "Iniciando los sensores I2C...");
-    EnvironmentalSensor_t *my_sensor = sensor_init();
-    
-    if (my_sensor == NULL) {
-        ESP_LOGE(TAG, "Fallo al inicializar el componente de sensores. Deteniendo tarea.");
-        return;
+    ESP_LOGI(TAG, "--- PASO 1: INICIANDO WI-FI ---");
+    if (provision_start(config) == ESP_OK) {
+        ESP_LOGI(TAG, "¡Wi-Fi conectado a '%s'!", config->wifi_ssid);
+        return true;
+    } else {
+        ESP_LOGE(TAG, "Fallo en el provisioning de Wi-Fi. Deteniendo.");
+        return false;
     }
-    
-    ESP_LOGI(TAG, "Sensores inicializados. Entrando en bucle de lectura.");
+}
 
-    // Bucle principal para leer los sensores y mostrarlos en el monitor serie.
-    while (1) {
-        // Obtenemos los últimos valores usando los getters.
-        float temp = sensor_get_temperature(my_sensor);
-        float press = sensor_get_pressure(my_sensor);
-        float hum = sensor_get_humidity(my_sensor);
+/**
+ * @brief Inicializa los servicios que dependen de la red (MQTT y Sensores).
+ *
+ * @param config Puntero a la configuración ya cargada.
+ * @return true Si todos los servicios se iniciaron correctamente.
+ * @return false Si algún servicio falló.
+ */
+static bool initialize_services(const app_config_t* config)
+{
+    ESP_LOGI(TAG, "--- PASO 2: INICIANDO SERVICIOS ---");
 
-        // Imprimimos los valores de forma clara.
-        printf("----------------------------------\n");
-        printf("  🌡️ Temperatura: %.2f C\n", temp);
-        printf("  💨 Presión:     %.2f hPa\n", press / 100.0);
-        
-        if(my_sensor->is_bme280 || my_sensor->sht3x_available){
-           printf("  💧 Humedad:     %.2f %%\n", hum);
-        } else {
-           printf("     Humedad:     No disponible\n");
+    // Revisar si tenemos configuración de InfluxDB antes de iniciar MQTT
+    if (strlen(config->influx_url) == 0 || strlen(config->influx_token) == 0) {
+        ESP_LOGW(TAG, "No se encontraron credenciales de InfluxDB.");
+        ESP_LOGW(TAG, "Por favor, conéctate a http://esp32-sensor.local/config para configurarlo.");
+        // Decidimos continuar sin MQTT, pero podrías retornar 'false' si es crítico.
+    } else {
+        if (mqtt_service_start(config) != ESP_OK) {
+            ESP_LOGE(TAG, "Fallo al iniciar el servicio MQTT.");
+            return false; // Error crítico si no puede iniciar
         }
-        
-        // Esperamos 5 segundos antes de la siguiente lectura.
+        ESP_LOGI(TAG, "Servicio MQTT iniciado correctamente.");
+    }
+
+    // Iniciar sensores
+    sensor_handle = sensor_init();
+    if (sensor_handle == NULL) {
+        ESP_LOGE(TAG, "Fallo al inicializar los sensores.");
+        return false;
+    }
+    ESP_LOGI(TAG, "Sensores inicializados correctamente.");
+    
+    return true;
+}
+
+/**
+ * @brief Bucle principal de la aplicación: leer sensores y publicar datos.
+ *
+ * Esta función contiene el bucle infinito que se ejecutará mientras el dispositivo
+ * esté en funcionamiento normal.
+ */
+static void run_application_loop(void)
+{
+    ESP_LOGI(TAG, "--- PASO 3: INICIANDO BUCLE PRINCIPAL ---");
+    while (1) {
+        // Esperamos 10 segundos entre cada publicación
         vTaskDelay(pdMS_TO_TICKS(5000));
+
+        // Leemos los datos más recientes de los sensores
+        float temp = sensor_get_temperature(sensor_handle);
+        float press = sensor_get_pressure(sensor_handle);
+        float hum = sensor_get_humidity(sensor_handle);
+
+        // Mostramos la lectura en la consola local para depuración
+        printf("----------------------------------\n");
+        printf("  🌡️ Lectura Local: Temp: %.2f C, Pres: %.2f hPa, Hum: %.2f %%\n", temp, press / 100.0, hum);
+        
+        // Publicamos los datos a través del servicio MQTT
+        mqtt_service_publish_sensors(temp, press, hum);
     }
 }
 
 
 void app_main(void)
 {
-    // Esta estructura contendrá las credenciales cargadas desde la memoria NVS.
     app_config_t config = {0};
 
-    ESP_LOGI(TAG, "--- INICIO DEL SERVIDOR AMBIENTAL ---");
-    ESP_LOGI(TAG, "Paso 1: Iniciando provisioning de Wi-Fi...");
-    esp_err_t wifi_status = provision_start(&config);
-
-    if (wifi_status == ESP_OK) {
-        ESP_LOGI(TAG, "Paso 1: ¡Éxito! Wi-Fi conectado a '%s'", config.wifi_ssid);
-        
-        // --- BLOQUE 2: LÓGICA DE SENSORES ---
-        // Si el Wi-Fi está listo, llamamos a la función dedicada a los sensores.
-        //ESP_LOGI(TAG, "Paso 2: Iniciando la lógica de los sensores.");
-        //start_and_run_sensors();
-
-    } else {
-        ESP_LOGE(TAG, "Paso 1: ¡Fallo crítico! No se pudo configurar o conectar el Wi-Fi.");
+    // La ejecución del programa ahora es una secuencia clara de pasos
+    if (initialize_wifi(&config)) {
+        if (initialize_services(&config)) {
+            run_application_loop();
+        }
     }
 
-    ESP_LOGE(TAG, "La aplicación ha finalizado de forma inesperada.");
+    ESP_LOGE(TAG, "La aplicación ha finalizado debido a un error en la inicialización.");
 }

@@ -2,12 +2,13 @@ idf_component_register(SRCS
                        "main.c"
                        "i2c_components/src/i2c_components.c"
                        "wifi_prov/src/wifi_prov.c"
+                       "mqtt_service/src/mqtt_service.c"
                        PRIV_REQUIRES spi_flash unity bme280
                        INCLUDE_DIRS
                        "."
                        "i2c_components/include"
                        "wifi_prov/iclude"
-                       
+                       "mqtt_service/include"
                        REQUIRES 
                             freertos
                             esp_wifi 
@@ -16,5 +17,5 @@ idf_component_register(SRCS
                             esp_http_server
                             esp_netif
                             mdns
-                           
+                            mqtt
                        )
