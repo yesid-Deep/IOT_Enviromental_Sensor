@@ -21,8 +21,6 @@ static void sensor_update_task(void *pvParameters)
     float temp_bmp, press, hum_bme;
     float temp_sht, hum_sht;
 
-    
-
     while (1)
     {
         // 1. Leemos del BMP/BME280
@@ -45,10 +43,8 @@ static void sensor_update_task(void *pvParameters)
 
         // --- SECCIÓN CRÍTICA: Actualizamos los datos compartidos ---
         if (xSemaphoreTake(sensor->mutex, portMAX_DELAY) == pdTRUE) {
-            
             // Siempre actualizamos la presión desde el BMP280
             sensor->pressure = press;
-
             if (sensor->is_bme280) {
                 // Si es un BME280, usamos sus propios datos
                 sensor->temperature = temp_bmp;
@@ -70,7 +66,7 @@ static void sensor_update_task(void *pvParameters)
         }
         // --- FIN DE LA SECCIÓN CRÍTICA ---
 
-        vTaskDelay(pdMS_TO_TICKS(2000)); // Esperamos 2 segundos
+        vTaskDelay(pdMS_TO_TICKS(500)); // Esperamos 2 segundos
     }
 }
 

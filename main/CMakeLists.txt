@@ -1,7 +1,20 @@
 idf_component_register(SRCS 
                        "main.c"
                        "i2c_components/src/i2c_components.c"
+                       "wifi_prov/src/wifi_prov.c"
                        PRIV_REQUIRES spi_flash unity bme280
                        INCLUDE_DIRS
                        "."
-                       "i2c_components/include")
+                       "i2c_components/include"
+                       "wifi_prov/iclude"
+                       
+                       REQUIRES 
+                            freertos
+                            esp_wifi 
+                            esp_event 
+                            nvs_flash 
+                            esp_http_server
+                            esp_netif
+                            mdns
+                           
+                       )

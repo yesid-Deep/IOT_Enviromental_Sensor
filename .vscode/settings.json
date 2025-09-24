@@ -4,7 +4,7 @@
     "interface/ftdi/esp32_devkitj_v1.cfg",
     "target/esp32.cfg"
   ],
-  "idf.portWin": "COM8",
+  "idf.portWin": "COM3",
   "idf.currentSetup": "D:/ESP-IDF/esp/",
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32"
@@ -17,6 +17,8 @@
   ],
   "idf.flashType": "UART",
   "files.associations": {
-    "bme280.h": "c"
+    "bme280.h": "c",
+    "esp_log.h": "c",
+    "esp_system.h": "c"
   }
 }

@@ -4,6 +4,9 @@
  * SPDX-License-Identifier: CC0-1.0
  */
 
+ FamiliaGamba
+ L1cogal2020*
+
 #include <stdio.h>
 #include <inttypes.h>
 #include "sdkconfig.h"

@@ -133,6 +133,16 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 1.4.2
+  espressif/mdns:
+    component_hash: 3ec0af5f6bce310512e90f482388d21cc7c0e99668172d2f895356165fc6f7c5
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.8.2
   idf:
     source:
       type: idf
@@ -141,7 +151,8 @@ direct_dependencies:
 - esp-idf-lib/bmp280
 - esp-idf-lib/sht3x
 - espressif/bme280
+- espressif/mdns
 - idf
-manifest_hash: ccfe38c1e71d377005aa14180f47f110f4c85a31029f322f9426e182f1a3a3ae
+manifest_hash: 11e11bf150f35eacab25af45a89af76db57f87c4c705a7172bcd16a6743274ed
 target: esp32
 version: 2.0.0
