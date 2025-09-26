@@ -4,8 +4,6 @@
 
 #include "esp_err.h"
 
-
-// Estructura ÚNICA para guardar todas nuestras credenciales
 typedef struct {
     // Credenciales de Red
     char wifi_ssid[32];

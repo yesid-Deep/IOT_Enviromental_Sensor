@@ -107,8 +107,7 @@ static esp_err_t load_config_from_nvs(app_config_t *config) {
     }
 
     size_t required_size;
-    // Usamos el operador |= para acumular cualquier error que ocurra.
-    // Si una sola de estas lecturas falla, 'err' no será ESP_OK.
+  
     err |= nvs_get_str(nvs_handle, "wifi_ssid", config->wifi_ssid, &(size_t){sizeof(config->wifi_ssid)});
     err |= nvs_get_str(nvs_handle, "wifi_pass", config->wifi_pass, &(size_t){sizeof(config->wifi_pass)});
     err |= nvs_get_str(nvs_handle, "mqtt_url", config->mqtt_url, &(size_t){sizeof(config->mqtt_url)});
@@ -155,8 +154,7 @@ static esp_err_t save_wifi_post_handler(httpd_req_t *req) {
     parse_json_value(buf, "ssid", prov_config->wifi_ssid, sizeof(prov_config->wifi_ssid));
     parse_json_value(buf, "pass", prov_config->wifi_pass, sizeof(prov_config->wifi_pass));
 
-    // --- MEJORA: No guardar si el SSID está vacío ---
-    if (strlen(prov_config->wifi_ssid) == 0) {
+    if (strlen(prov_config->wifi_ssid) == 0) {   // Credentials of wifi not None
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "El SSID no puede estar vacio");
         return ESP_FAIL;
     }
@@ -188,7 +186,7 @@ static esp_err_t save_influx_post_handler(httpd_req_t *req) {
 static void initialise_mdns(void)
 {
     mdns_init();
-    mdns_hostname_set("esp32-sensor"); // El nombre que usarás: http://esp32-sensor.local
+    mdns_hostname_set("esp32-sensor"); // Name web server: http://esp32-sensor.local
     mdns_instance_name_set("Servidor Ambiental ESP32");
     
     mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
@@ -271,7 +269,7 @@ static void wifi_init_softap(void)
     ESP_LOGI(TAG, "Punto de Acceso 'ESP32-Sensor-Config' iniciado. Password: 'password'. Conectate y ve a 192.168.4.1");
 }
 
-// --- Función Pública Principal (Refactorizada) ---
+
 esp_err_t provision_start(app_config_t *config) {
     prov_config = config;
 
@@ -283,8 +281,6 @@ esp_err_t provision_start(app_config_t *config) {
     }
     ESP_ERROR_CHECK(ret);
 
-    // --- NUEVA LÓGICA DE RESETEO ---
-    // 1. Comprobar si existe la bandera de reseteo al arrancar
     nvs_handle_t nvs_handle;
     nvs_open("nvs", NVS_READONLY, &nvs_handle);
     uint8_t reset_flag = 0;
@@ -299,7 +295,7 @@ esp_err_t provision_start(app_config_t *config) {
         nvs_commit(nvs_handle);
         nvs_close(nvs_handle);
         
-        // Borramos la propia bandera para el siguiente arranque
+
         nvs_open("nvs", NVS_READWRITE, &nvs_handle);
         nvs_set_u8(nvs_handle, "reset_flag", 0);
         nvs_commit(nvs_handle);
@@ -310,7 +306,7 @@ esp_err_t provision_start(app_config_t *config) {
         esp_restart();
     }
     
-    // Si no hay bandera de reseteo, el programa continúa normalmente
+
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     s_wifi_event_group = xEventGroupCreate();
@@ -322,7 +318,6 @@ esp_err_t provision_start(app_config_t *config) {
         ESP_LOGI(TAG, "Configuracion Wi-Fi encontrada. Conectando como Cliente (Station)...");
         wifi_init_sta(config);
         
-                // Esperamos aquí hasta que la conexión sea exitosa o falle definitivamente
         EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
                 WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
                 pdFALSE,
@@ -332,15 +327,15 @@ esp_err_t provision_start(app_config_t *config) {
         // Comprobamos el resultado
         if (bits & WIFI_CONNECTED_BIT) {
             ESP_LOGI(TAG, "Conexión exitosa.");
-            start_webserver(false); // Iniciar servidor con AMBAS páginas
-            initialise_mdns();      // Iniciar mDNS
+            start_webserver(false); 
+            initialise_mdns();      
             return ESP_OK; 
 
         } else {
             ESP_LOGE(TAG, "Fallo al conectar con las credenciales guardadas.");
             // Las credenciales son incorrectas, disparamos un reseteo
             trigger_factory_reset(); 
-            return ESP_FAIL; // El dispositivo se reiniciará
+            return ESP_FAIL; 
         } 
     }else {
         ESP_LOGI(TAG, "No se encontró Wi-Fi. Iniciando como Punto de Acceso (AP)...");

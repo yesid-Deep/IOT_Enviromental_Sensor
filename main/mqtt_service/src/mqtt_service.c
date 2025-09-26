@@ -9,11 +9,9 @@ static const char *TAG = "MQTT_SERVICE";
 
 
 
-// Variables estáticas para guardar el cliente y la configuración
 static esp_mqtt_client_handle_t client = NULL;
 static app_config_t service_config;
-/**/
-// Manejador de eventos para saber si nos conectamos, desconectamos, etc.
+
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
 {
     esp_mqtt_event_handle_t event = event_data;
@@ -35,12 +33,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 // Función para iniciar el servicio
 esp_err_t mqtt_service_start(const app_config_t* config)
 {
-    // Copiamos la configuración para tenerla disponible en la función de publicar
     memcpy(&service_config, config, sizeof(app_config_t));
 
     ESP_LOGI(TAG, "Iniciando MQTT con Broker URL: %s", service_config.mqtt_url);
-    
-    // Configuramos el cliente MQTT para InfluxDB
+
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = service_config.mqtt_url,
         .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
